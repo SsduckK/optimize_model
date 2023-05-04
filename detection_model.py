@@ -2,8 +2,8 @@ import cv2
 import mmcv
 from mmcv.transforms import Compose
 from mmengine.utils import track_iter_progress
-from mmdet.registry import VISUALIZERS
-from mmdet.apis import init_detector, inference_detector
+from mmdetection.mmdet.registry import VISUALIZERS
+from mmdetection.mmdet.apis import init_detector, inference_detector
 
 
 # Specify the path to model config and checkpoint file
