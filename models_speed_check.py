@@ -7,10 +7,11 @@ import numpy as np
 import csv
 
 import mmcv
+from mmdetection.mmdet.registry import VISUALIZERS
 from mmcv.transforms import Compose
 from mmengine.utils import track_iter_progress
-from mmdetection.mmdet.registry import VISUALIZERS
-from mmdetection.mmdet.apis import init_detector, inference_detector
+from mmdet.registry import VISUALIZERS
+from mmdet.apis import init_detector, inference_detector
 
 
 class SpeedLog:
@@ -57,7 +58,7 @@ class SpeedLog:
 
     def check_speed(self, model, frame, idx):
         start = time.time()
-        inference_detector(model, frame, test_pipeline=self.test_pipeline[idx])
+        result = inference_detector(model, frame, test_pipeline=self.test_pipeline[idx])
         inf_time = time.time() - start
         return inf_time
 
@@ -81,4 +82,3 @@ class SpeedLog:
 ckpt_list = glob.glob(op.join("/mnt/intHDD/mmdet_ckpt/test_yolo", "*"))
 output_path = "/home/gorilla/lee_ws/optimize_model/optimize_model/speed_log"
 t = SpeedLog(ckpt_list, output_path, using_video=True)
-print("")
