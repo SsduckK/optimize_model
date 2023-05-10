@@ -5,7 +5,6 @@ from mmengine.utils import track_iter_progress
 from mmdetection.mmdet.registry import VISUALIZERS
 from mmdetection.mmdet.apis import init_detector, inference_detector
 
-
 # Specify the path to model config and checkpoint file
 config_file = 'mmdetection/rtmdet_tiny_8xb32-300e_coco.py'
 checkpoint_file = 'mmdetection/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth'
