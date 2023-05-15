@@ -1,4 +1,8 @@
+#!/home/gorilla/.pyenv/versions/mmdetection/bin python3
+
 import sys
+
+sys.path.append("/home/gorilla/.pyenv/versions/mmdetection/lib/python3.9/site-packages")
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
