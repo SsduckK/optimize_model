@@ -11,6 +11,7 @@ import csv
 import mmcv
 from mmcv.transforms import Compose
 from mmengine.utils import track_iter_progress
+from mmdet.registry import VISUALIZERS
 from mmdet.apis import init_detector, inference_detector
 
 
