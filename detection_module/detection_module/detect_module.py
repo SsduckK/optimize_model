@@ -17,8 +17,8 @@ from mmdet.apis import init_detector, inference_detector
 
 class MainDetector:
     def __init__(self, ckpt_list):
+        self.test_pipeline = [[]] * len(ckpt_list)
         self.models = self.build_model(ckpt_list)
-        self.test_pipeline = None
 
     def __call__(self, image):
         chosen_idx = self.optimize_model(self.models)
