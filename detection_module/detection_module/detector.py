@@ -36,7 +36,7 @@ class Detector(Node):
         cv2.imshow("sub_image", msg_img)
         cv2.waitKey(2)
 
-    def subscribe_sen_time(self, timer):
+    def subscribe_send_time(self, timer):
         sub_timer = Float64()
         sub_timer.data = timer.data
         print(sub_timer)
