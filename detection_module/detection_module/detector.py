@@ -42,11 +42,10 @@ class Detector(Node):
         bboxes = instances["bboxes"].cpu().numpy()
         labels = instances["labels"].cpu().numpy()
         scores = instances["scores"].cpu().numpy()
-        print("bboxes : ", type(bboxes))
-        print("labels : ", type(labels))
-        print("scores : ", type(scores))
-        return 0, 0, 0
-
+        bboxes_bytes = bboxes.tobytes()     # float32
+        labels_bytes = labels.tobytes()     # int64
+        scores_bytes = scores.tobytes()     # float32
+        return bboxes_bytes, labels_bytes, scores_bytes
 
     def publsih_result(self, bboxes, classes, scores):
         pass
