@@ -16,25 +16,28 @@ import time
 
 from .detect_module import MainDetector as MD
 from ros_imgtime_msg.msg import Imagetime
+from detecting_result_msg.msg import Result
 
 
 class Detector(Node):
     def __init__(self, ckpt_list):
         super().__init__("observer")
         self.detector = MD(ckpt_list)
-        self.camera_sending_time = 0
+        self.image_received_time = 0
         self.before_model = 0
         self.after_model = 0
         self.image_subscriber = self.create_subscription(Imagetime, "sending_image", self.subscribe_image, 10)
+        self.result_publisher = self.create_publisher(Result, "sending_result", 10)
 
     def subscribe_image(self, image_time):
         image = image_time.image
-        self.camera_sending_time = image_time.timestamp
+        self.image_received_time = image_time.timestamp
         msg_img = CvBridge().imgmsg_to_cv2(image, "bgr8")
         self.before_model = time.time()
         detected_result = self.detector(msg_img)
         self.after_model = time.time()
         bboxes, classes, scores = self.get_bboxes_result(detected_result.pred_instances)
+        self.publish_result(bboxes, classes, scores, self.image_received_time, self.before_model, self.after_model)
         cv2.imshow("sub_image", msg_img)
         cv2.waitKey(2)
 
@@ -47,8 +50,15 @@ class Detector(Node):
         scores_bytes = scores.tobytes()     # float32
         return bboxes_bytes, labels_bytes, scores_bytes
 
-    def publsih_result(self, bboxes, classes, scores):
-        pass
+    def publish_result(self, bboxes, classes, scores, received_time, before_model_time, after_model_time):
+        detection_result_timestamp = Result()
+        detection_result_timestamp.timestamp = [received_time[0], before_model_time, after_model_time]
+        detection_result_timestamp.bboxes.data = [bboxes]
+        detection_result_timestamp.classes.data = [classes]
+        detection_result_timestamp.scores.data = [scores]
+        self.result_publisher.publish(detection_result_timestamp)
+
+
 
 
 def system_init():

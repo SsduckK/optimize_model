@@ -1,5 +1,4 @@
 float64[] timestamp
-std_msgs/Byte bboxes
-std_msgs/Byte classes
-std_msgs/Byte scores
-string type
+std_msgs/ByteMultiArray bboxes
+std_msgs/ByteMultiArray classes
+std_msgs/ByteMultiArray scores
