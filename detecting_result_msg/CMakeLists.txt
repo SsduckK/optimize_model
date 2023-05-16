@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(ros_imgtime_msg)
+project(detecting_result_msg)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
@@ -35,8 +35,8 @@ find_package(sensor_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/Imagetime.msg"
-  DEPENDENCIES sensor_msgs
+  "msg/Result.msg"
+  DEPENDENCIES std_msgs
  )
-
+ 
 ament_package()

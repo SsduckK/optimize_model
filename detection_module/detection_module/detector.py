@@ -1,7 +1,6 @@
 import sys
 
-sys.path.append("/home/gorilla/.pyenv/versions/model_opt/lib/python3.8/site-packages")
-# sys.path.append("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/mmdetection")
+# sys.path.append("/home/gorilla/.pyenv/versions/model_opt/lib/python3.8/site-packages")
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
@@ -16,30 +15,41 @@ from glob import glob
 import time
 
 from .detect_module import MainDetector as MD
+from ros_imgtime_msg.msg import Imagetime
 
 
 class Detector(Node):
     def __init__(self, ckpt_list):
         super().__init__("observer")
         self.detector = MD(ckpt_list)
-        self.sending_time = 0
+        self.camera_sending_time = 0
         self.before_model = 0
         self.after_model = 0
-        self.image_subscriber = self.create_subscription(Image, "sending_image", self.subscribe_image, 10)
-        self.timer_subscriber = self.create_subscription(Float64, "sending_moment", self.subscribe_send_time, 10)
+        self.image_subscriber = self.create_subscription(Imagetime, "sending_image", self.subscribe_image, 10)
 
-    def subscribe_image(self, image):
+    def subscribe_image(self, image_time):
+        image = image_time.image
+        self.camera_sending_time = image_time.timestamp
         msg_img = CvBridge().imgmsg_to_cv2(image, "bgr8")
         self.before_model = time.time()
         detected_result = self.detector(msg_img)
         self.after_model = time.time()
+        bboxes, classes, scores = self.get_bboxes_result(detected_result.pred_instances)
         cv2.imshow("sub_image", msg_img)
         cv2.waitKey(2)
 
-    def subscribe_send_time(self, timer):
-        sub_timer = Float64()
-        sub_timer.data = timer.data
-        print(sub_timer)
+    def get_bboxes_result(self, instances):
+        bboxes = instances["bboxes"].cpu().numpy()
+        labels = instances["labels"].cpu().numpy()
+        scores = instances["scores"].cpu().numpy()
+        print("bboxes : ", type(bboxes))
+        print("labels : ", type(labels))
+        print("scores : ", type(scores))
+        return 0, 0, 0
+
+
+    def publsih_result(self, bboxes, classes, scores):
+        pass
 
 
 def system_init():
