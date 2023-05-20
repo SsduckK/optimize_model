@@ -1,8 +1,8 @@
 import sys
 
-# sys.path.append("/home/gorilla/.pyenv/versions/model_opt/lib/python3.8/site-packages")
 import rclpy
 from rclpy.node import Node
+import numpy as np
 from rclpy.qos import QoSProfile
 from std_msgs.msg import Float64
 from std_msgs.msg import Float64MultiArray
@@ -39,27 +39,24 @@ class Detector(Node):
         bboxes, classes, scores = self.get_bboxes_result(detected_result.pred_instances)
         self.publish_result(bboxes, classes, scores, self.image_received_time, self.before_model, self.after_model)
         cv2.imshow("sub_image", msg_img)
-        cv2.waitKey(2)
+        cv2.waitKey(30)
 
     def get_bboxes_result(self, instances):
         bboxes = instances["bboxes"].cpu().numpy()
-        labels = instances["labels"].cpu().numpy()
+        classes = instances["labels"].cpu().numpy()
         scores = instances["scores"].cpu().numpy()
         bboxes_bytes = bboxes.tobytes()     # float32
-        labels_bytes = labels.tobytes()     # int64
+        classes_bytes = classes.tobytes()     # int64
         scores_bytes = scores.tobytes()     # float32
-        return bboxes_bytes, labels_bytes, scores_bytes
+        return bboxes_bytes, classes_bytes, scores_bytes
 
     def publish_result(self, bboxes, classes, scores, received_time, before_model_time, after_model_time):
         detection_result_timestamp = Result()
         detection_result_timestamp.timestamp = [received_time[0], before_model_time, after_model_time]
-        detection_result_timestamp.bboxes.data = [bboxes]
-        detection_result_timestamp.classes.data = [classes]
-        detection_result_timestamp.scores.data = [scores]
+        detection_result_timestamp.bboxes = list(bboxes)
+        detection_result_timestamp.classes = list(classes)
+        detection_result_timestamp.scores = list(scores)
         self.result_publisher.publish(detection_result_timestamp)
-
-
-
 
 def system_init():
     sub_package_path = os.path.dirname(os.path.abspath(__file__))
