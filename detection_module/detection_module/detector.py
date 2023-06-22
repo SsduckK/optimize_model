@@ -33,13 +33,18 @@ class Detector(Node):
         image = image_time.image
         self.image_received_time = image_time.timestamp
         msg_img = CvBridge().imgmsg_to_cv2(image, "bgr8")
+        compressed_image = self.compress_image(msg_img, 80)
         self.before_model = time.time()
         detected_result = self.detector(msg_img)
         self.after_model = time.time()
         bboxes, classes, scores = self.get_bboxes_result(detected_result.pred_instances)
         self.publish_result(bboxes, classes, scores, self.image_received_time, self.before_model, self.after_model)
-        cv2.imshow("sub_image", msg_img)
-        cv2.waitKey(30)
+
+    def compress_image(self, image, compress_ratio):
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), compress_ratio]
+        _, encimg = cv2.imencode('.jpg', image, encode_param)
+        compress_image = cv2.imdecode(encimg, 1)
+        return compress_image
 
     def get_bboxes_result(self, instances):
         bboxes = instances["bboxes"].cpu().numpy()
@@ -71,7 +76,7 @@ def system_init():
 def main(args=None):
     system_init()
     rclpy.init(args=args)
-    ckpt_list = glob(op.join("/mnt/intHDD/mmdet_ckpt/test_yolo", "*"))
+    ckpt_list = [t for t in glob(op.join("/mnt/intHDD/mmdet_ckpt/yolov7", "*")) if "_base_" not in t]
     node = Detector(ckpt_list)
     try:
         rclpy.spin(node)
