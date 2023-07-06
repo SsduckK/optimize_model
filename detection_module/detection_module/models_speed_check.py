@@ -7,7 +7,6 @@ import numpy as np
 import csv
 
 import mmcv
-from mmdetection.mmdet.registry import VISUALIZERS
 from mmcv.transforms import Compose
 from mmengine.utils import track_iter_progress
 from mmdet.registry import VISUALIZERS
@@ -18,7 +17,7 @@ class SpeedLog:
     def __init__(self, ckpt_list, output, using_video=False):
         self.ckpt_list = ckpt_list
         if using_video:
-            self.input_video = mmcv.VideoReader("../mmdetection/demo/demo.mp4")
+            self.input_video = mmcv.VideoReader("/home/gorilla/lee_ws/mmdetector/mmdetection/demo/demo.mp4")
             self.frames = list(track_iter_progress(self.input_video))
         else:
             self.frames = self.load_frames()
@@ -29,11 +28,7 @@ class SpeedLog:
 
     def build_model(self):
         self.items = {glob.glob(op.join(config, "*.py"))[0]: glob.glob(op.join(config, "*.pth"))[0] for config in self.ckpt_list}
-        models = [init_detector(config, pth) for config, pth in self.items.items()]
-        self.test_pipeline = [i for i in range(len(models))]
-        for i, model in enumerate(models):
-            model.cfg.test_dataloader.dataset.pipeline[0].type = 'LoadImageFromNDArray'
-            self.test_pipeline[i] = Compose(model.cfg.test_dataloader.dataset.pipeline)
+        models = [init_detector(config, pth, device='cuda:0') for config, pth in self.items.items()]
         return models
 
     def load_frames(self):  #input = image directory, return image list/ NEED implement
@@ -58,7 +53,7 @@ class SpeedLog:
 
     def check_speed(self, model, frame, idx):
         start = time.time()
-        result = inference_detector(model, frame, test_pipeline=self.test_pipeline[idx])
+        result = inference_detector(model, frame)
         inf_time = time.time() - start
         return inf_time
 
@@ -79,6 +74,6 @@ class SpeedLog:
                 w.writerow(result)
 
 
-ckpt_list = glob.glob(op.join("/mnt/intHDD/mmdet_ckpt/test_yolo", "*"))
+ckpt_list = [t for t in glob.glob(op.join("/mnt/intHDD/mmdet_ckpt/yolov7", "*")) if not "_base_" in t]
 output_path = "/home/gorilla/lee_ws/optimize_model/optimize_model/speed_log"
 t = SpeedLog(ckpt_list, output_path, using_video=True)
