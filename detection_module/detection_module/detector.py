@@ -19,12 +19,16 @@ from .detect_module import MainDetector as MD
 from rod_msg.msg import Rodmsg
 from detecting_result_msg.msg import Result
 from rclpy.time import Time
-import utils
+from .label_reader import LabelReader
+from .evaluator import Evaluator
+
 
 class Detector(Node):
-    def __init__(self, ckpt_list, reserve_frames=5):
+    def __init__(self, gt_path, ckpt_list, reserve_frames=5):
         super().__init__("server")
         self.detectors = self.load_detectors(ckpt_list)
+        self.read_labels = LabelReader(gt_path)
+        self.evaluate = Evaluator()
         self.model_selection = 0
         self.compression = 0
         self.frame_meta = np.zeros((reserve_frames, 4))     # client to server time, detection time, model selection, compression
@@ -39,17 +43,26 @@ class Detector(Node):
         return models
 
     def subscribe_image(self, imgmsg):
+        det_input = self.det_input_process()    # func
+        dqn_input = self.dqn_input.get()    # class
+        dqn_result = self.dqn.run()           # class
+        det_result = self.detector.run(det_input)    # class
+        dqn_train_input = self.dqn_input.update(det_result)  # class
+        self.dqn.train(dqn_train_input)
+
         publ_time = Time.from_msg(imgmsg.header.stamp).nanoseconds
         subs_time = self.get_clock().now().nanoseconds
         image = cv2.imdecode(np.array(imgmsg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
         self.compression, image_name = imgmsg.encoding.split("/")
         detector = self.get_detector()
-        od_result = self.get_result(detector, image)
+        od_output = self.get_result(detector, image)
         detc_time = self.get_clock().now().nanoseconds
 
         self.frame_meta[self.meta_index] = np.array([subs_time-publ_time, detc_time-subs_time,
                                                      self.model_selection, self.compression])
         self.meta_index = (self.meta_index + 1) % self.frame_meta.shape[0]
+        gt_label = self.read_labels(image_name)
+        eval_res = self.evaluate(od_output, gt_label, "model_name")
 
         evaluater = self.evaluate_detection(od_result, image_name, image)
         self.model_selection, self.compression = np.random.randint(0, 3), np.random.randint(50, 100)
@@ -73,18 +86,13 @@ class Detector(Node):
         bboxes = pred.bboxes
         labels = pred.labels
         bboxes = bboxes[scores > 0.3].cpu().numpy()
-        labels = labels[scores > 0.3].cpu().numpy()
-        scores = scores[scores > 0.3].cpu().numpy()
-        return {"bboxes": bboxes, "labels": labels, "scores": scores}
-
-    def evaluate_detection(self, result, image_name, image=None):
-        label_data = utils.load_label(image_name)
-        iou, iou_coord = utils.compute_iou_general(label_data, result["bboxes"])
-        utils.get_confusionmatrix(iou, label_data["category"], result)
+        labels = np.expand_dims(labels[scores > 0.3].cpu().numpy(), axis=-1)
+        scores = np.expand_dims(scores[scores > 0.3].cpu().numpy(), axis=-1)
+        return {"bboxes": bboxes, "category": labels, "scores": scores}
 
     def bboxes_result_tobytes(self, instances):
         bboxes = instances["bboxes"].cpu().numpy()
-        classes = instances["labels"].cpu().numpy()
+        classes = instances["category"].cpu().numpy()
         scores = instances["scores"].cpu().numpy()
         bboxes_bytes = bboxes.tobytes()     # float32
         classes_bytes = classes.tobytes()     # int64
@@ -100,20 +108,16 @@ class Detector(Node):
         self.result_publisher.publish(detection_result_timestamp)
 
 def system_init():
-    sub_package_path = os.path.dirname(os.path.abspath(__file__))
-    if sub_package_path not in sys.path:
-        sys.path.append(sub_package_path)
-
     package_path = os.path.dirname(os.path.abspath(__file__))
-    if package_path not in sys.path:
-        sys.path.append(package_path)
+    sys.path.append(package_path)
 
 
 def main(args=None):
     system_init()
     rclpy.init(args=args)
+    gt_path = "/mnt/intHDD/kitti/training/label_2"
     ckpt_list = [t for t in glob(op.join("/mnt/intHDD/mmdet_ckpt/yolov7", "*")) if "_base_" not in t]
-    node = Detector(ckpt_list)
+    node = Detector(gt_path, ckpt_list)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
