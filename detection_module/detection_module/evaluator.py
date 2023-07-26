@@ -7,19 +7,21 @@ class Evaluator:
         self.iou_thresh = iou_thresh
         self.tpfpfn = {}  # {'model1': {'tp': 0, 'fp': 0, 'fn': 0}, ...}
 
-    def get_recall_precision(self, model_name):
-        # self.tpfpfn[model_name]
-        pass
-
-    def __call__(self, grtr, pred, model_name):
+    def __call__(self, pred, grtr, model_name):
         splits = self.split_tpfpfn(grtr, pred)
-        self.update_counts(splits)
-        return splits
+        self.tpfpfn = self.accumulate(self.tpfpfn, self.update_counts(splits), model_name)
+        recall, precision = self.get_recall_precision(model_name)
+        return [recall, precision]
 
-    def split_tpfpfn(self, pred, grtr):
+    def get_recall_precision(self, model_name):
+        recall = self.tpfpfn[model_name]["grtr_tp"]/(self.tpfpfn[model_name]["grtr_tp"] + self.tpfpfn[model_name]["grtr_fn"])
+        precision = self.tpfpfn[model_name]["pred_tp"]/(self.tpfpfn[model_name]["pred_tp"] + self.tpfpfn[model_name]["pred_fp"])
+        return recall, precision
+
+    def split_tpfpfn(self, grtr, pred):
         """
-        :param pred: {'bbox': (batch, M, 4), 'category': [batch, N, 1], 'object': ...}
-        :param grtr: "
+        :param pred: {'bbox': (M, 4), 'category': [N, 1], 'object': ...}
+        :param grtr: same pred
         :return:
         """
         pred = self.insert_batch(pred)
@@ -109,5 +111,22 @@ class Evaluator:
             gathar_param = np.take(params, index)
         return gathar_param
 
+    def accumulate(self, existing, new, model_name):
+        if model_name in existing.keys():
+            for key, value in existing[model_name].items():
+                if key in existing[model_name].keys():
+                    existing[model_name][key] += value
+        else:
+            existing[model_name] = {k: 0 for k in new.keys()}
+            for key, value in new.items():
+                existing[model_name][key] = value
+        return existing
+
     def update_counts(self, split):
-        pass
+        counts = {k: 0 for k in list(split.keys())}
+        for atr in split.keys():
+            if atr == "pred_tp" or atr == "pred_fp":
+                counts[atr] = np.count_nonzero(split[atr]["scores"])
+            elif atr == "grtr_tp" or atr == "grtr_fn":
+                counts[atr] = np.sum(split[atr]["object"])
+        return counts

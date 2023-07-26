@@ -12,83 +12,67 @@ from cv_bridge import CvBridge
 import os
 import os.path as op
 from glob import glob
+import torch
 import time
-from mmdet.apis import init_detector, inference_detector
 
-from .detect_module import MainDetector as MD
+from .detect_module import Detectors
 from rod_msg.msg import Rodmsg
 from detecting_result_msg.msg import Result
 from rclpy.time import Time
 from .label_reader import LabelReader
 from .evaluator import Evaluator
+from .DQN import DQN
+from .DQN_preparer import DqnInput
+from .utils import draw_bboxes
 
 
-class Detector(Node):
+class Server(Node):
     def __init__(self, gt_path, ckpt_list, reserve_frames=5):
         super().__init__("server")
-        self.detectors = self.load_detectors(ckpt_list)
+        self.detector = Detectors(ckpt_list)
+        self.dqn = DQN()
+        self.dqn_input = DqnInput()
         self.read_labels = LabelReader(gt_path)
         self.evaluate = Evaluator()
         self.model_selection = 0
+        self.limit_time = 0.05
         self.compression = 0
-        self.frame_meta = np.zeros((reserve_frames, 4))     # client to server time, detection time, model selection, compression
-        self.meta_index = 0
         self.metric_by_model = {}   # {'{model_name}_{compression}': [TP, FP, FN]}
         self.image_subscriber = self.create_subscription(Image, "sending_image", self.subscribe_image, 10)
         self.result_publisher = self.create_publisher(Result, "sending_result", 10)
 
-    def load_detectors(self, ckpt_list):
-        items = {glob(op.join(config, "*.py"))[0]: glob(op.join(config, "*.pth"))[0] for config in ckpt_list}
-        models = [init_detector(config, pth) for config, pth in items.items()]
-        return models
-
     def subscribe_image(self, imgmsg):
-        det_input = self.det_input_process()    # func
-        dqn_input = self.dqn_input.get()    # class
-        dqn_result = self.dqn.run()           # class
-        det_result = self.detector.run(det_input)    # class
-        dqn_train_input = self.dqn_input.update(det_result)  # class
-        self.dqn.train(dqn_train_input)
-
         publ_time = Time.from_msg(imgmsg.header.stamp).nanoseconds
         subs_time = self.get_clock().now().nanoseconds
-        image = cv2.imdecode(np.array(imgmsg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
-        self.compression, image_name = imgmsg.encoding.split("/")
-        detector = self.get_detector()
-        od_output = self.get_result(detector, image)
-        detc_time = self.get_clock().now().nanoseconds
-
-        self.frame_meta[self.meta_index] = np.array([subs_time-publ_time, detc_time-subs_time,
-                                                     self.model_selection, self.compression])
-        self.meta_index = (self.meta_index + 1) % self.frame_meta.shape[0]
+        image, image_name = self.det_input_process(imgmsg)    # func
+        dqn_input = self.dqn_input.get(recent_frame=3)      # class -> dqn_input["model"], dqn_input["compression"]
+        det_result, detection_time = self.detector.run(self.detector.models[self.model_selection], image) # class
         gt_label = self.read_labels(image_name)
-        eval_res = self.evaluate(od_output, gt_label, "model_name")
+        eval_res = self.evaluate(det_result, gt_label, self.model_selection)    # [recall, precision]
+        reward = self.calculate_reward(eval_res, detection_time, self.limit_time)
+        self.dqn_input.update(self.model_selection, self.compression, subs_time-publ_time, detection_time)
+        # draw_bboxes(image, det_result["bboxes"])
+        # dqn_result = self.dqn.run()           # class
+        # dqn_train_input = self.dqn_input.update(det_result)  # class
+        # self.dqn.train(dqn_train_input)
 
-        evaluater = self.evaluate_detection(od_result, image_name, image)
-        self.model_selection, self.compression = np.random.randint(0, 3), np.random.randint(50, 100)
         # self.model_selection, self.compression = self.dqn.run(self.frame_meta, )
         # self.dqn.train()
-        self.publish_result()
+        # self.publish_result()
 
+        # cv2.imshow("image", image)
+        # cv2.waitKey(0)
 
-        cv2.imshow("image", image)
-        cv2.waitKey(0)
-        bboxes, classes, scores = self.get_bboxes_result(detected_result.pred_instances)
-        self.publish_result(bboxes, classes, scores, self.image_received_time, self.before_model, self.after_model)
+    def det_input_process(self, image_msg):
+        image = cv2.imdecode(np.array(image_msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        self.compression, image_name = image_msg.encoding.split("/")
+        return image, image_name
 
-    def get_detector(self, detector_index=0):
-        return self.detectors[detector_index]
-
-    def get_result(self, detector, image):
-        result = inference_detector(detector, image)
-        pred = result.pred_instances
-        scores = pred.scores
-        bboxes = pred.bboxes
-        labels = pred.labels
-        bboxes = bboxes[scores > 0.3].cpu().numpy()
-        labels = np.expand_dims(labels[scores > 0.3].cpu().numpy(), axis=-1)
-        scores = np.expand_dims(scores[scores > 0.3].cpu().numpy(), axis=-1)
-        return {"bboxes": bboxes, "category": labels, "scores": scores}
+    def calculate_reward(self, evaluation_result, detection_time, limit_time):
+        recall, precision = evaluation_result
+        F1_score = 2 * recall * precision / (recall + precision)
+        reward = F1_score + 1 - (detection_time - limit_time)/limit_time
+        return reward
 
     def bboxes_result_tobytes(self, instances):
         bboxes = instances["bboxes"].cpu().numpy()
@@ -117,7 +101,7 @@ def main(args=None):
     rclpy.init(args=args)
     gt_path = "/mnt/intHDD/kitti/training/label_2"
     ckpt_list = [t for t in glob(op.join("/mnt/intHDD/mmdet_ckpt/yolov7", "*")) if "_base_" not in t]
-    node = Detector(gt_path, ckpt_list)
+    node = Server(gt_path, ckpt_list)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

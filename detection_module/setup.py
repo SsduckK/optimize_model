@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-        f"detection_module = {package_name}.detector:main",
+        f"detection_module = {package_name}.server:main",
         ],
     },
 )
