@@ -1,5 +1,6 @@
 import sys
 
+import pandas as pd
 import rclpy
 from rclpy.node import Node
 import numpy as np
@@ -12,17 +13,15 @@ from cv_bridge import CvBridge
 import os
 import os.path as op
 from glob import glob
-import torch
 import time
 
 from .detect_module import Detectors
 from rod_msg.msg import Rodmsg
-from detecting_result_msg.msg import Result
 from rclpy.time import Time
 from .label_reader import LabelReader
 from .evaluator import Evaluator
 from .DQN import DQN
-from .DQN_preparer import DqnInput
+from .DQN_memory import ReplayMemory
 from .utils import draw_bboxes
 
 
@@ -30,35 +29,49 @@ class Server(Node):
     def __init__(self, gt_path, ckpt_list, reserve_frames=5):
         super().__init__("server")
         self.detector = Detectors(ckpt_list)
-        self.dqn = DQN()
-        self.dqn_input = DqnInput()
+        self.memory = ReplayMemory()
+        self.dqn = DQN(self.memory)
         self.read_labels = LabelReader(gt_path)
         self.evaluate = Evaluator()
+        self.frame_index = 0
         self.model_selection = 0
-        self.limit_time = 0.05
         self.compression = 0
+        self.limit_time = 0.05
         self.metric_by_model = {}   # {'{model_name}_{compression}': [TP, FP, FN]}
         self.image_subscriber = self.create_subscription(Image, "sending_image", self.subscribe_image, 10)
-        self.result_publisher = self.create_publisher(Result, "sending_result", 10)
+        self.result_publisher = self.create_publisher(Rodmsg, "sending_result", 10)
 
     def subscribe_image(self, imgmsg):
         publ_time = Time.from_msg(imgmsg.header.stamp).nanoseconds
         subs_time = self.get_clock().now().nanoseconds
-        image, image_name = self.det_input_process(imgmsg)    # func
-        dqn_input = self.dqn_input.get(recent_frame=3)      # class -> dqn_input["model"], dqn_input["compression"]
+
+        image, image_name = self.det_input_process(imgmsg)    # class -> dqn_input["model"], dqn_input["compression"]
         det_result, detection_time = self.detector.run(self.detector.models[self.model_selection], image) # class
+
         gt_label = self.read_labels(image_name)
         eval_res = self.evaluate(det_result, gt_label, self.model_selection)    # [recall, precision]
-        reward = self.calculate_reward(eval_res, detection_time, self.limit_time)
-        self.dqn_input.update(self.model_selection, self.compression, subs_time-publ_time, detection_time)
-        # draw_bboxes(image, det_result["bboxes"])
-        # dqn_result = self.dqn.run()           # class
-        # dqn_train_input = self.dqn_input.update(det_result)  # class
-        # self.dqn.train(dqn_train_input)
 
+        cur_state = {"model": self.model_selection, "compression": self.compression,
+                     "C2S_time": subs_time-publ_time, "det_time": detection_time}
+        self.memory.append_data(self.frame_index, cur_state)
+        # action, reward
+        reward = self.calculate_reward(eval_res, detection_time, self.limit_time)
+        self.model_selection, self.compression = self.dqn.predict(self.memory.latest_state())
+        if self.frame_index > 1:
+            self.memory.append_data(self.frame_index - 1, {"reward": reward})
+        self.dqn.optimize_model()
+        self.dqn.update_model()
+        self.frame_index += 1
         # self.model_selection, self.compression = self.dqn.run(self.frame_meta, )
+        # self.dqn_input.append(frame_index, {"model": model_sel, "comp": comp})
+        # df = pd.DataFrame()
+        # if self.fram_index in df.index:
+        #     append()
+        # else:
+        #     df[frame_index, "time"] = time
         # self.dqn.train()
-        # self.publish_result()
+        bboxes, classes, scores = self.bboxes_result_tobytes(det_result)
+        self.publish_result(bboxes, classes, scores, self.compression)
 
         # cv2.imshow("image", image)
         # cv2.waitKey(0)
@@ -66,29 +79,30 @@ class Server(Node):
     def det_input_process(self, image_msg):
         image = cv2.imdecode(np.array(image_msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
         self.compression, image_name = image_msg.encoding.split("/")
+        self.compression = int(self.compression) / 10 - 1
         return image, image_name
 
     def calculate_reward(self, evaluation_result, detection_time, limit_time):
         recall, precision = evaluation_result
         F1_score = 2 * recall * precision / (recall + precision)
-        reward = F1_score + 1 - (detection_time - limit_time)/limit_time
-        return reward
+        reward = F1_score + 1 - detection_time/limit_time
+        return reward   # 0 ~ 1
 
     def bboxes_result_tobytes(self, instances):
-        bboxes = instances["bboxes"].cpu().numpy()
-        classes = instances["category"].cpu().numpy()
-        scores = instances["scores"].cpu().numpy()
+        bboxes = instances["bboxes"]
+        classes = instances["category"]
+        scores = instances["scores"]
         bboxes_bytes = bboxes.tobytes()     # float32
         classes_bytes = classes.tobytes()     # int64
         scores_bytes = scores.tobytes()     # float32
         return bboxes_bytes, classes_bytes, scores_bytes
 
-    def publish_result(self, bboxes, classes, scores, received_time, before_model_time, after_model_time):
-        detection_result_timestamp = Result()
-        detection_result_timestamp.timestamp = [received_time, before_model_time, after_model_time]
+    def publish_result(self, bboxes, classes, scores, compression):
+        detection_result_timestamp = Rodmsg()
         detection_result_timestamp.bboxes = list(bboxes)
         detection_result_timestamp.classes = list(classes)
         detection_result_timestamp.scores = list(scores)
+        detection_result_timestamp.compression = int(compression)
         self.result_publisher.publish(detection_result_timestamp)
 
 def system_init():

@@ -9,6 +9,8 @@ from mmengine.utils import track_iter_progress
 from mmdet.registry import VISUALIZERS
 from mmdet.apis import init_detector, inference_detector
 
+from . import config as cfg
+
 
 class Detectors:
     def __init__(self, ckpt_list):
@@ -27,7 +29,7 @@ class Detectors:
         scores = pred.scores
         bboxes = pred.bboxes
         labels = pred.labels
-        bboxes = bboxes[scores > 0.3].cpu().numpy()
-        labels = np.expand_dims(labels[scores > 0.3].cpu().numpy(), axis=-1)
-        scores = np.expand_dims(scores[scores > 0.3].cpu().numpy(), axis=-1)
+        bboxes = bboxes[scores > cfg.SCORE_THRESHOLD].cpu().numpy()
+        labels = np.expand_dims(labels[scores > cfg.SCORE_THRESHOLD].cpu().numpy(), axis=-1)
+        scores = np.expand_dims(scores[scores > cfg.SCORE_THRESHOLD].cpu().numpy(), axis=-1)
         return {"bboxes": bboxes, "category": labels, "scores": scores}, detection_time

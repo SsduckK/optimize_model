@@ -14,8 +14,8 @@ class Evaluator:
         return [recall, precision]
 
     def get_recall_precision(self, model_name):
-        recall = self.tpfpfn[model_name]["grtr_tp"]/(self.tpfpfn[model_name]["grtr_tp"] + self.tpfpfn[model_name]["grtr_fn"])
-        precision = self.tpfpfn[model_name]["pred_tp"]/(self.tpfpfn[model_name]["pred_tp"] + self.tpfpfn[model_name]["pred_fp"])
+        recall = self.tpfpfn[model_name]["grtr_tp"]/(self.tpfpfn[model_name]["grtr_tp"] + self.tpfpfn[model_name]["grtr_fn"] + 1e-7)
+        precision = self.tpfpfn[model_name]["pred_tp"]/(self.tpfpfn[model_name]["pred_tp"] + self.tpfpfn[model_name]["pred_fp"] + 1e-7)
         return recall, precision
 
     def split_tpfpfn(self, grtr, pred):
@@ -31,6 +31,10 @@ class Evaluator:
         ctgr_match = np.isclose(grtr["category"], np.swapaxes(pred["category"], 1, 2))  # (batch, N, M)
         ctgr_match = ctgr_match.astype(np.float32)
         iou = self.compute_iou_general(grtr["bboxes"], pred["bboxes"])  # (batch, N, M)
+        if iou.size == 0:
+            dummy = {'category': np.array([[[0]]]), 'bboxes': np.array([[[0, 0, 0, 0]]]), 'object': np.array([[[0]]]),
+                     'scores': np.array([[[0]]]), 'iou': np.array([[[0]]])}
+            return {"pred_tp": dummy, "pred_fp": dummy, "grtr_tp": dummy, "grtr_fn": dummy}
         iou *= ctgr_match
         best_iou = np.max(iou, axis=-1, keepdims=True)  # (batch, N, 1)
         best_idx = np.argmax(iou, axis=-1, keepdims=True)  # (batch, N, 1)
@@ -113,7 +117,7 @@ class Evaluator:
 
     def accumulate(self, existing, new, model_name):
         if model_name in existing.keys():
-            for key, value in existing[model_name].items():
+            for key, value in new.items():
                 if key in existing[model_name].keys():
                     existing[model_name][key] += value
         else:

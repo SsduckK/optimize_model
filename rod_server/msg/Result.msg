@@ -1,4 +1,5 @@
-float64[] timestamp
-int32[] bboxes
-int32[] classes
-int32[] scores
+std_msgs/Header timestamp
+sensor_msgs/Image buffer
+int32 compression
+int32 rows
+int32 cols
