@@ -50,36 +50,24 @@ class Server(Node):
 
         gt_label = self.read_labels(image_name)
         eval_res = self.evaluate(det_result, gt_label, self.model_selection)    # [recall, precision]
+        reward = self.calculate_reward(eval_res, detection_time, self.limit_time)
 
         cur_state = {"model": self.model_selection, "compression": self.compression,
-                     "C2S_time": subs_time-publ_time, "det_time": detection_time}
+                     "C2S_time": subs_time-publ_time, "det_time": detection_time, "reward": reward}
         self.memory.append_data(self.frame_index, cur_state)
         # action, reward
-        reward = self.calculate_reward(eval_res, detection_time, self.limit_time)
         self.model_selection, self.compression = self.dqn.predict(self.memory.latest_state())
-        if self.frame_index > 1:
-            self.memory.append_data(self.frame_index - 1, {"reward": reward})
         self.dqn.optimize_model()
         self.dqn.update_model()
         self.frame_index += 1
-        # self.model_selection, self.compression = self.dqn.run(self.frame_meta, )
-        # self.dqn_input.append(frame_index, {"model": model_sel, "comp": comp})
-        # df = pd.DataFrame()
-        # if self.fram_index in df.index:
-        #     append()
-        # else:
-        #     df[frame_index, "time"] = time
-        # self.dqn.train()
         bboxes, classes, scores = self.bboxes_result_tobytes(det_result)
-        self.publish_result(bboxes, classes, scores, self.compression)
-
-        # cv2.imshow("image", image)
-        # cv2.waitKey(0)
+        self.publish_result(bboxes, classes, scores, self.compression, self.model_selection)
 
     def det_input_process(self, image_msg):
         image = cv2.imdecode(np.array(image_msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
-        self.compression, image_name = image_msg.encoding.split("/")
-        self.compression = int(self.compression) / 10 - 1
+        model_selection, self.compression, image_name = image_msg.encoding.split("/")
+        self.model_selection = int(model_selection)
+        self.compression = (int(self.compression) / 30) - 1
         return image, image_name
 
     def calculate_reward(self, evaluation_result, detection_time, limit_time):
@@ -97,12 +85,13 @@ class Server(Node):
         scores_bytes = scores.tobytes()     # float32
         return bboxes_bytes, classes_bytes, scores_bytes
 
-    def publish_result(self, bboxes, classes, scores, compression):
+    def publish_result(self, bboxes, classes, scores, compression, model_num):
         detection_result_timestamp = Rodmsg()
         detection_result_timestamp.bboxes = list(bboxes)
         detection_result_timestamp.classes = list(classes)
         detection_result_timestamp.scores = list(scores)
         detection_result_timestamp.compression = int(compression)
+        detection_result_timestamp.model_number = int(model_num)
         self.result_publisher.publish(detection_result_timestamp)
 
 def system_init():

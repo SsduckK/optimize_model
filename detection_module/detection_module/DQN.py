@@ -21,7 +21,7 @@ class DQNNetwork(nn.Module):
         self.layer2 = nn.Linear(128, 128)
 
         self.select_models = nn.Linear(128, n_actions)
-        self.select_comp = nn.Linear(128, 10)
+        self.select_comp = nn.Linear(128, 3)
 
     def forward(self, x):
         x = F.relu(self.layer1(x))
@@ -116,7 +116,7 @@ class DQN:
                 return self.policy_net(state)[0].max(1)[1].view(1, 1), self.policy_net(state)[1].max(1)[1].view(1, 1)
         else:
             return torch.tensor(torch.randint(0, cfg.MODEL_NUM, (1, 1)), device=self.device, dtype=torch.long),\
-                torch.tensor(torch.randint(0, 9, (1, 1)), device=self.device, dtype=torch.long)
+                torch.tensor(torch.randint(0, 3, (1, 1)), device=self.device, dtype=torch.long)
 
     def batched_memory(self, memory):
         columns = memory.columns.values
