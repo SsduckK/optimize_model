@@ -34,8 +34,6 @@ class Server(Node):
         self.read_labels = LabelReader(gt_path)
         self.evaluate = Evaluator()
         self.frame_index = 0
-        self.model_selection = 0
-        self.compression = 0
         self.limit_time = 0.05
         self.metric_by_model = {}   # {'{model_name}_{compression}': [TP, FP, FN]}
         self.image_subscriber = self.create_subscription(Image, "sending_image", self.subscribe_image, 10)
@@ -45,30 +43,31 @@ class Server(Node):
         publ_time = Time.from_msg(imgmsg.header.stamp).nanoseconds
         subs_time = self.get_clock().now().nanoseconds
 
-        image, image_name = self.det_input_process(imgmsg)    # class -> dqn_input["model"], dqn_input["compression"]
-        det_result, detection_time = self.detector.run(self.detector.models[self.model_selection], image) # class
+        image, image_name, model_selection, compression = self.det_input_process(imgmsg)    # class -> dqn_input["model"], dqn_input["compression"]
+        det_result, detection_time = self.detector.run(self.detector.models[model_selection], image) # class
 
         gt_label = self.read_labels(image_name)
-        eval_res = self.evaluate(det_result, gt_label, self.model_selection)    # [recall, precision]
+        draw_bboxes(image, det_result, gt_label, self.frame_index, 0)
+        eval_res = self.evaluate(det_result, gt_label, model_selection, compression)    # [recall, precision]
         reward = self.calculate_reward(eval_res, detection_time, self.limit_time)
-
-        cur_state = {"model": self.model_selection, "compression": self.compression,
+        cur_state = {"model": model_selection, "compression": compression,
                      "C2S_time": subs_time-publ_time, "det_time": detection_time, "reward": reward}
         self.memory.append_data(self.frame_index, cur_state)
         # action, reward
-        self.model_selection, self.compression = self.dqn.predict(self.memory.latest_state())
-        self.dqn.optimize_model()
+        next_model_selection, next_compression = self.dqn.select_action(self.memory.latest_state())
+        self.dqn.optimize_model(self.memory)
         self.dqn.update_model()
         self.frame_index += 1
         bboxes, classes, scores = self.bboxes_result_tobytes(det_result)
-        self.publish_result(bboxes, classes, scores, self.compression, self.model_selection)
+        self.publish_result(bboxes, classes, scores, next_compression, next_model_selection)
 
     def det_input_process(self, image_msg):
         image = cv2.imdecode(np.array(image_msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
-        model_selection, self.compression, image_name = image_msg.encoding.split("/")
-        self.model_selection = int(model_selection)
-        self.compression = (int(self.compression) / 30) - 1
-        return image, image_name
+        model_selection, compression, image_name = image_msg.encoding.split("-")
+        image_name = image_name.split("/")[-1]
+        model_selection = int(model_selection)
+        compression = (int(compression) / 30) - 1
+        return image, image_name, model_selection, compression
 
     def calculate_reward(self, evaluation_result, detection_time, limit_time):
         recall, precision = evaluation_result
@@ -102,13 +101,13 @@ def system_init():
 def main(args=None):
     system_init()
     rclpy.init(args=args)
-    gt_path = "/mnt/intHDD/kitti/training/label_2"
-    ckpt_list = [t for t in glob(op.join("/mnt/intHDD/mmdet_ckpt/yolov7", "*")) if "_base_" not in t]
+    gt_path = "/mnt/intHDD/cityscapes/annotations_json/"
+    ckpt_list = [t for t in glob(op.join("/mnt/intHDD/mmdet_ckpt/yolox", "*")) if "_base_" not in t]
     node = Server(gt_path, ckpt_list)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        node.get_logger().info("Keyboard Interrupt (SigInt")
+        node.get_logger().info("Keyboard Interrupt (SigInt)")
     finally:
         node.destroy_node()
         rclpy.shutdown()

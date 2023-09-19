@@ -47,7 +47,6 @@ class DQN:
         self.LR = 1e-4
         self.model_name = 0
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.memory = memory
         self.policy_net = DQNNetwork(4, cfg.MODEL_NUM).to(
             self.device)  # [state, action, next_state, reward] , action : MODEL_NUM_4
         self.target_net = DQNNetwork(4, cfg.MODEL_NUM).to(
@@ -55,24 +54,22 @@ class DQN:
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.LR, amsgrad=True)
 
-    def predict(self, state):
-        actions = self.select_action(state[:4])
-        return actions
-
     def split_input(self, input_data):
         state = torch.tensor([[input_data[i] for i in input_data.keys() if i != "reward"]],
                              dtype=torch.float32, device=self.device)
         reward = [input_data["reward"]]
         return state, reward
 
-    def optimize_model(self):
-        if len(self.memory) < self.BATCH_SIZE:
+    def optimize_model(self, memory):
+        if len(memory) < self.BATCH_SIZE:
             return
-        sample_memory = self.memory.sample(self.BATCH_SIZE)
+        sample_memory = memory.sample(self.BATCH_SIZE)
+        # curr_state, next_state, reward = batch()
+        # model_selection, compression = func(curr_state)
         cur_state, cur_compression, cur_reward = self.batched_memory(sample_memory)
         model_selection_action_batch = torch.unsqueeze(cur_state[:, 0], 1).type(torch.int64)
         next_state_index = self.get_next_state_index(sample_memory)
-        next_sample_memory = self.get_next_state(self.memory.meta_info, next_state_index)
+        next_sample_memory = self.get_next_state(memory.meta_info, next_state_index)
         next_state, next_compression, next_reward = self.batched_memory(next_sample_memory)
         non_final_mask = torch.tensor([~torch.all(torch.isnan(s)) for s in next_state], device='cuda', dtype=torch.bool)
         with torch.no_grad():
@@ -81,9 +78,9 @@ class DQN:
                                             next_compression_actions.max(1)[0].unsqueeze(1)], dim=1)
             next_state_values = next_actions_value * non_final_mask.unsqueeze(1)
         expected_state_action_values = (next_state_values * self.GAMMA) + cur_reward
-        self.memory.meta_info.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/total_memory.csv", sep=",")
-        sample_memory.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/sample_memory.csv", sep=",")
-        next_sample_memory.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/next_state.csv", sep=",")
+        # memory.meta_info.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/total_memory.csv", sep=",")
+        # sample_memory.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/sample_memory.csv", sep=",")
+        # next_sample_memory.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/next_state.csv", sep=",")
         sample_model, sample_compression = self.policy_net(cur_state)
         model_selection_values = sample_model.gather(1, model_selection_action_batch)
         compression_selection_values = sample_compression.gather(1, cur_compression)
@@ -96,6 +93,7 @@ class DQN:
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
         print("optimize_done")
+        print(total_loss)
 
     def update_model(self):
         target_net_state_dict = self.target_net.state_dict()
@@ -106,7 +104,7 @@ class DQN:
         self.target_net.load_state_dict(target_net_state_dict)
 
     def select_action(self, state):
-        state = np.asarray([state], dtype=np.float32)
+        state = np.asarray([state[:4]], dtype=np.float32)
         state = torch.tensor(state, device=self.device)
         sample = random.random()
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1 * self.steps / self.EPS_DECAY)
@@ -115,8 +113,8 @@ class DQN:
             with torch.no_grad():
                 return self.policy_net(state)[0].max(1)[1].view(1, 1), self.policy_net(state)[1].max(1)[1].view(1, 1)
         else:
-            return torch.tensor(torch.randint(0, cfg.MODEL_NUM, (1, 1)), device=self.device, dtype=torch.long),\
-                torch.tensor(torch.randint(0, 3, (1, 1)), device=self.device, dtype=torch.long)
+            return torch.randint(0, cfg.MODEL_NUM, (1, 1), device=self.device, dtype=torch.long), \
+                torch.randint(0, 3, (1, 1), device=self.device, dtype=torch.long)
 
     def batched_memory(self, memory):
         columns = memory.columns.values

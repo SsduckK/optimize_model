@@ -7,7 +7,7 @@ class Evaluator:
         self.iou_thresh = iou_thresh
         self.tpfpfn = {}  # {'model1': {'tp': 0, 'fp': 0, 'fn': 0}, ...}
 
-    def __call__(self, pred, grtr, model_name):
+    def __call__(self, pred, grtr, model_name, compression):
         splits = self.split_tpfpfn(grtr, pred)
         self.tpfpfn = self.accumulate(self.tpfpfn, self.update_counts(splits), model_name)
         recall, precision = self.get_recall_precision(model_name)
