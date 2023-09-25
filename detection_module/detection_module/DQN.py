@@ -1,10 +1,7 @@
 import math
 import random
 import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
-from collections import namedtuple, deque
-from itertools import count
+import json
 
 import torch
 import torch.nn as nn
@@ -12,6 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from . import config as cfg
+import pdb
 
 
 class DQNNetwork(nn.Module):
@@ -24,15 +22,21 @@ class DQNNetwork(nn.Module):
         self.select_comp = nn.Linear(128, 3)
 
     def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
-        select_model = F.relu(self.select_models(x))
-        select_comp = F.relu(self.select_comp(x))
+        #print("input", x)
+        x = F.leaky_relu(self.layer1(x))
+        #print("1st", x)
+        x = F.leaky_relu(self.layer2(x))
+        #print("2nd", x)
+        select_model = F.leaky_relu(self.select_models(x))
+        select_comp = F.leaky_relu(self.select_comp(x))
+        #print("model_", select_model)
+        #print("comp_", select_comp)
         return select_model, select_comp
 
 
 class DQN:
     def __init__(self, memory):
+        torch.autograd.set_detect_anomaly(True)
         self.steps = 0
         if torch.cuda.is_available():
             self.num_episodes = 600
@@ -71,16 +75,16 @@ class DQN:
         next_state_index = self.get_next_state_index(sample_memory)
         next_sample_memory = self.get_next_state(memory.meta_info, next_state_index)
         next_state, next_compression, next_reward = self.batched_memory(next_sample_memory)
-        non_final_mask = torch.tensor([~torch.all(torch.isnan(s)) for s in next_state], device='cuda', dtype=torch.bool)
+        non_final_mask = torch.isnan(next_state).any(dim=1)
+        non_final_next_states = next_state[~non_final_mask]
+        next_state_values = torch.zeros((self.BATCH_SIZE, 2), device=self.device)
+
         with torch.no_grad():
-            next_model_action, next_compression_actions = self.target_net(next_state)
+            next_model_action, next_compression_actions = self.target_net(non_final_next_states)
             next_actions_value = torch.cat([next_model_action.max(1)[0].unsqueeze(1),
                                             next_compression_actions.max(1)[0].unsqueeze(1)], dim=1)
-            next_state_values = next_actions_value * non_final_mask.unsqueeze(1)
+            next_state_values[~non_final_mask] = next_actions_value
         expected_state_action_values = (next_state_values * self.GAMMA) + cur_reward
-        # memory.meta_info.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/total_memory.csv", sep=",")
-        # sample_memory.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/sample_memory.csv", sep=",")
-        # next_sample_memory.to_csv("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/next_state.csv", sep=",")
         sample_model, sample_compression = self.policy_net(cur_state)
         model_selection_values = sample_model.gather(1, model_selection_action_batch)
         compression_selection_values = sample_compression.gather(1, cur_compression)
@@ -89,11 +93,16 @@ class DQN:
         comp_loss = criterion(compression_selection_values, expected_state_action_values[:, 1].unsqueeze(1))
         total_loss = model_loss + comp_loss
         self.optimizer.zero_grad()
-        total_loss.backward()
+        try:
+            total_loss.backward()
+        except Exception as err:
+            pdb.set_trace()
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
         print("optimize_done")
         print(total_loss)
+        # with open("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/loss.txt", 'a') as f:
+        #     f.write(f"\n+{str(total_loss)}")
 
     def update_model(self):
         target_net_state_dict = self.target_net.state_dict()
@@ -104,6 +113,7 @@ class DQN:
         self.target_net.load_state_dict(target_net_state_dict)
 
     def select_action(self, state):
+        # print("input_state", state)
         state = np.asarray([state[:4]], dtype=np.float32)
         state = torch.tensor(state, device=self.device)
         sample = random.random()
@@ -113,8 +123,8 @@ class DQN:
             with torch.no_grad():
                 return self.policy_net(state)[0].max(1)[1].view(1, 1), self.policy_net(state)[1].max(1)[1].view(1, 1)
         else:
-            return torch.randint(0, cfg.MODEL_NUM, (1, 1), device=self.device, dtype=torch.long), \
-                torch.randint(0, 3, (1, 1), device=self.device, dtype=torch.long)
+            return torch.randint(0, cfg.MODEL_NUM, (1, 1), device=self.device, dtype=torch.float32), \
+                torch.randint(0, 3, (1, 1), device=self.device, dtype=torch.float32)
 
     def batched_memory(self, memory):
         columns = memory.columns.values
@@ -134,3 +144,21 @@ class DQN:
     def get_next_state(self, memory, next_state_index):
         next_state = memory.iloc[next_state_index]
         return next_state
+
+    def validating(self):
+        parameter = self.load_validating_data("/home/gorilla/lee_ws/ros/src/optimize_model/"
+                                              "detection_module/detection_module/data/validation_data/data.json")
+        for state in parameter["data"]:
+            model_norm = (state[0] - cfg.PARAMETER["model"]["mean"]) / cfg.PARAMETER["model"]["std"]
+            comp_norm = (state[0] - cfg.PARAMETER["compression"]["mean"]) / cfg.PARAMETER["compression"]["std"]
+            c2s_norm = (state[0] - cfg.PARAMETER["c2s_time"]["mean"]) / cfg.PARAMETER["c2s_time"]["std"]
+            det_norm = (state[0] - cfg.PARAMETER["det_time"]["mean"]) / cfg.PARAMETER["det_time"]["std"]
+            st = torch.tensor([model_norm, comp_norm, c2s_norm, det_norm], device=self.device)
+            print(state)
+            print(self.policy_net(st)[0].max(0)[1].view(1, 1),
+                  self.policy_net(st)[1].max(0)[1].view(1, 1))
+
+    def load_validating_data(self, data):
+        with open(data, 'r') as f:
+            parameter = json.load(f)
+        return parameter

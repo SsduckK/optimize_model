@@ -1,7 +1,7 @@
 import numpy as np
 import os.path as op
 import cv2
-
+import matplotlib.pyplot as plt
 
 def draw_bboxes(image, pred_bboxes, gt_bboxes, index, delay=0):
     drawn_image = image.copy()
@@ -19,3 +19,4 @@ def draw_bboxes(image, pred_bboxes, gt_bboxes, index, delay=0):
 
     # cv2.imwrite("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/image/" + str(index) + ".png",
     #             drawn_image)
+
