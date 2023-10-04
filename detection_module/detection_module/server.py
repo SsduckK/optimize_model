@@ -24,6 +24,7 @@ from .evaluator import Evaluator
 from .DQN import DQN
 from .DQN_memory import ReplayMemory
 from .utils import draw_bboxes
+from .logging_tool import LoggingTool
 
 
 class Server(Node):
@@ -32,11 +33,12 @@ class Server(Node):
         self.detector = Detectors(ckpt_list)
         self.memory = ReplayMemory()
         self.dqn = DQN(self.memory)
+        self.logging_tool = LoggingTool(cfg.MEAN_RANGE)
         self.read_labels = LabelReader(gt_path)
         self.train_record = train_record
         self.evaluate = Evaluator()
         self.frame_index = 0
-        self.limit_time = 0.03
+        self.target_time = cfg.TARGET_TIME
         self.metric_by_model = {}   # {'{model_name}_{compression}': [TP, FP, FN]}
         self.image_subscriber = self.create_subscription(Image, "sending_image", self.subscribe_image, 10)
         self.result_publisher = self.create_publisher(Rodmsg, "sending_result", 10)
@@ -50,8 +52,9 @@ class Server(Node):
         gt_label = self.read_labels(image_name)
         draw_bboxes(image, det_result, gt_label, self.frame_index, 0)
         eval_res = self.evaluate(det_result, gt_label, model_selection, compression)    # [recall, precision]
-        reward = self.calculate_reward(eval_res, detection_time, self.limit_time)
+        reward = self.calculate_reward(eval_res, detection_time, self.target_time)
         normalized_value = self.normalizing([model_selection, compression, subs_time-publ_time, detection_time])
+        self.logging_tool.get_time_diff(detection_time)
         cur_state = {"model": normalized_value["model"] * 0.6, "compression": normalized_value["compression"] * 0.6,
                      "C2S_time": normalized_value["c2s_time"],
                      "det_time": normalized_value["det_time"],
@@ -61,7 +64,10 @@ class Server(Node):
         # action, reward
         if self.train_record == "train":
             next_model_selection, next_compression = self.dqn.select_action(self.memory.latest_state())
-            self.dqn.optimize_model(self.memory)
+            loss = self.dqn.optimize_model(self.memory)
+            self.logging_tool.get_loss(loss)
+            if self.frame_index >= cfg.BATCH_SIZE:
+                self.logging_tool.logging()
             self.dqn.update_model()
             # with open("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/time.txt",
             #           'a') as f:
@@ -92,11 +98,10 @@ class Server(Node):
     def calculate_reward(self, evaluation_result, detection_time, limit_time):
         recall, precision = evaluation_result
         F1_score = 2 * recall * precision / (recall + precision)
+        self.logging_tool.get_F1score(F1_score)
         reward = F1_score + 1 - detection_time/limit_time
         # print("recall :", recall)
         # print("precision :", precision)
-        print("F1_score :", F1_score)
-        print("reward :", reward)
         return reward   # 0 ~ 1
 
     def bboxes_result_tobytes(self, instances):
@@ -164,6 +169,7 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
+        node.logging_tool.saving_data(cfg.RESULT_PATH)
         node.get_logger().info("Keyboard Interrupt (SigInt)")
     finally:
         node.destroy_node()

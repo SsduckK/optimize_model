@@ -42,7 +42,7 @@ class DQN:
             self.num_episodes = 600
         else:
             self.num_episodes = 50
-        self.BATCH_SIZE = 128
+        self.BATCH_SIZE = cfg.BATCH_SIZE
         self.GAMMA = 0.99
         self.EPS_START = 0.9
         self.EPS_END = 0.05
@@ -93,14 +93,12 @@ class DQN:
         comp_loss = criterion(compression_selection_values, expected_state_action_values[:, 1].unsqueeze(1))
         total_loss = model_loss + comp_loss
         self.optimizer.zero_grad()
-        try:
-            total_loss.backward()
-        except Exception as err:
-            pdb.set_trace()
+        total_loss.backward()
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
         print("optimize_done")
         print(total_loss)
+        return total_loss
         # with open("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/loss.txt", 'a') as f:
         #     f.write(f"\n+{str(total_loss)}")
 
@@ -146,8 +144,7 @@ class DQN:
         return next_state
 
     def validating(self):
-        parameter = self.load_validating_data("/home/gorilla/lee_ws/ros/src/optimize_model/"
-                                              "detection_module/detection_module/data/validation_data/data.json")
+        parameter = self.load_validating_data(cfg.VALIDATING_DATA)
         for state in parameter["data"]:
             model_norm = (state[0] - cfg.PARAMETER["model"]["mean"]) / cfg.PARAMETER["model"]["std"]
             comp_norm = (state[0] - cfg.PARAMETER["compression"]["mean"]) / cfg.PARAMETER["compression"]["std"]
