@@ -96,8 +96,6 @@ class DQN:
         total_loss.backward()
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
-        print("optimize_done")
-        print(total_loss)
         return total_loss
         # with open("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/loss.txt", 'a') as f:
         #     f.write(f"\n+{str(total_loss)}")
@@ -144,6 +142,7 @@ class DQN:
         return next_state
 
     def validating(self):
+        result = []
         parameter = self.load_validating_data(cfg.VALIDATING_DATA)
         for state in parameter["data"]:
             model_norm = (state[0] - cfg.PARAMETER["model"]["mean"]) / cfg.PARAMETER["model"]["std"]
@@ -151,9 +150,9 @@ class DQN:
             c2s_norm = (state[0] - cfg.PARAMETER["c2s_time"]["mean"]) / cfg.PARAMETER["c2s_time"]["std"]
             det_norm = (state[0] - cfg.PARAMETER["det_time"]["mean"]) / cfg.PARAMETER["det_time"]["std"]
             st = torch.tensor([model_norm, comp_norm, c2s_norm, det_norm], device=self.device)
-            print(state)
-            print(self.policy_net(st)[0].max(0)[1].view(1, 1),
-                  self.policy_net(st)[1].max(0)[1].view(1, 1))
+            result.append([self.policy_net(st)[0].max(0)[1].view(1, 1).cpu().numpy(),
+                           self.policy_net(st)[1].max(0)[1].view(1, 1).cpu().numpy()])
+        return result
 
     def load_validating_data(self, data):
         with open(data, 'r') as f:

@@ -4,8 +4,9 @@ MODEL_NUM = 3
 COMPRESSION_NUM = 3
 TARGET_TIME = 0.03
 MEAN_RANGE = 100
-EPISODE_UNIT = BATCH_SIZE * 3
-NUM_EPISODES = 500
+EPISODE_UNIT = 300
+NUM_EPISODES = 50
+
 RESULT_PATH = "/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data"
 VALIDATING_DATA = ("/home/gorilla/lee_ws/ros/src/optimize_model/"
                    "detection_module/detection_module/data/validation_data/validate_data1.json")

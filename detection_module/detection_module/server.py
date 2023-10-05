@@ -38,6 +38,7 @@ class Server(Node):
         self.train_record = train_record
         self.evaluate = Evaluator()
         self.frame_index = 0
+        self.episode_index = 1
         self.target_time = cfg.TARGET_TIME
         self.metric_by_model = {}   # {'{model_name}_{compression}': [TP, FP, FN]}
         self.image_subscriber = self.create_subscription(Image, "sending_image", self.subscribe_image, 10)
@@ -68,10 +69,14 @@ class Server(Node):
             self.logging_tool.get_loss(loss)
             if self.frame_index >= cfg.BATCH_SIZE:
                 self.logging_tool.logging()
-            self.dqn.update_model()
-            # with open("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/time.txt",
-            #           'a') as f:
-            #     f.write(f"C2S_time : {subs_time - publ_time}, det_time : {detection_time}\n")
+            if self.frame_index % cfg.EPISODE_UNIT == 0 and self.frame_index > 0:
+                print("EPISODE :", self.episode_index)
+                self.dqn.update_model()
+                print("====================validating...====================")
+                validate_result = self.dqn.validating()
+                self.logging_tool.record_validation(validate_result)
+                self.episode_index += 1
+                print("====================== done =========================")
         elif self.train_record == "record":
             print(self.frame_index)
             next_model_selection, next_compression = self.random_selection()
@@ -79,13 +84,12 @@ class Server(Node):
             print("keyword must be train or record")
             sys.exit(0)
         # self.recording(self.train_record, self.memory)
-        print(self.frame_index)
         self.frame_index += 1
         bboxes, classes, scores = self.bboxes_result_tobytes(det_result)
-        if self.frame_index % 1000 == 0:
-            print("validating...")
-            self.dqn.validating()
         self.publish_result(bboxes, classes, scores, next_compression, next_model_selection)
+        if self.episode_index > cfg.NUM_EPISODES:
+            self.logging_tool.saving_data(cfg.RESULT_PATH)
+            sys.exit(0)
 
     def det_input_process(self, image_msg):
         image = cv2.imdecode(np.array(image_msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -99,9 +103,7 @@ class Server(Node):
         recall, precision = evaluation_result
         F1_score = 2 * recall * precision / (recall + precision)
         self.logging_tool.get_F1score(F1_score)
-        reward = F1_score + 1 - detection_time/limit_time
-        # print("recall :", recall)
-        # print("precision :", precision)
+        reward = F1_score + 0.7 - detection_time/limit_time
         return reward   # 0 ~ 1
 
     def bboxes_result_tobytes(self, instances):

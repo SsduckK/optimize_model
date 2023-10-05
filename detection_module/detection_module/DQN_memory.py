@@ -7,11 +7,11 @@ class ReplayMemory:
     def __init__(self):
         self.meta_info = pd.DataFrame(
             {
-                "model": [None] * 10000,
-                "compression": [None] * 10000,
-                "C2S_time": [None] * 10000,
-                "det_time": [None] * 10000,
-                "reward": [None] * 10000
+                "model": [None] * 100000,
+                "compression": [None] * 100000,
+                "C2S_time": [None] * 100000,
+                "det_time": [None] * 100000,
+                "reward": [None] * 100000
             }
         )
 
