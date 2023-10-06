@@ -67,6 +67,7 @@ class Server(Node):
             next_model_selection, next_compression = self.dqn.select_action(self.memory.latest_state())
             loss = self.dqn.optimize_model(self.memory)
             self.logging_tool.get_loss(loss)
+            self.logging_tool.detection_time_per_episodes(detection_time)
             if self.frame_index >= cfg.BATCH_SIZE:
                 self.logging_tool.logging()
             if self.frame_index % cfg.EPISODE_UNIT == 0 and self.frame_index > 0:
@@ -75,6 +76,7 @@ class Server(Node):
                 print("====================validating...====================")
                 validate_result = self.dqn.validating()
                 self.logging_tool.record_validation(validate_result)
+                self.logging_tool.std_detection_time_episodes()
                 self.episode_index += 1
                 print("====================== done =========================")
         elif self.train_record == "record":

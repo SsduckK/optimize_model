@@ -19,6 +19,9 @@ class LoggingTool:
         self.loss = 0
         self.time_list = []
         self.time_diff = 0
+        self.detection_time_list = []
+        self.episode_detection_std_time = 0
+        self.std_detection_time_list = []
         self.F1_score = 0
 
     def load_frame(self):
@@ -52,6 +55,14 @@ class LoggingTool:
         episode_list = np.array([["|"] * actions.shape[0]]).transpose()
         self.validate_state = np.concatenate([self.validate_state, episode_list, actions], axis=1)
 
+    def detection_time_per_episodes(self, detection_time):
+        self.detection_time_list.append(detection_time)
+
+    def std_detection_time_episodes(self):
+        self.episode_detection_std_time = np.std(self.detection_time_list)
+        self.std_detection_time_list.append(self.episode_detection_std_time)
+        self.detection_time_list = []
+
     def logging(self):
         loss = self.loss.cpu().detach().numpy()
         frame_info = np.array([[self.frame_idx, loss, self.time_diff, self.F1_score]])
@@ -66,6 +77,7 @@ class LoggingTool:
         os.mkdir(new_path)
         loss_timediff_f1score = pd.DataFrame(self.base_frame)
         validate_result = pd.DataFrame(self.validate_state)
+        print(self.std_detection_time_list)
         loss_timediff_f1score.to_csv(op.join(new_path, "log.csv"), index=False)
         validate_result.to_csv(op.join(new_path, "validate.csv"), index=False)
 

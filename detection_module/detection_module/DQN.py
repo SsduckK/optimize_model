@@ -109,7 +109,6 @@ class DQN:
         self.target_net.load_state_dict(target_net_state_dict)
 
     def select_action(self, state):
-        # print("input_state", state)
         state = np.asarray([state[:4]], dtype=np.float32)
         state = torch.tensor(state, device=self.device)
         sample = random.random()
