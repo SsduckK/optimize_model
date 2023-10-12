@@ -5,8 +5,8 @@ MODEL_NUM = 3
 COMPRESSION_NUM = 3
 TARGET_TIME = 0.025
 MEAN_RANGE = 100
-EPISODE_UNIT = 100
-NUM_EPISODES = 500
+EPISODE_UNIT = 500
+NUM_EPISODES = 600
 REWARD_PARAMETER = 0.7
 
 RESULT_PATH = "/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data"

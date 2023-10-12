@@ -109,11 +109,11 @@ class Server(Node):
         recall, precision = evaluation_result
         F1_score = 2 * recall * precision / (recall + precision)
         self.logging_tool.get_F1score(F1_score)
-        reward = F1_score + cfg.REWARD_PARAMETER - detection_time/limit_time
-        # reward = detection_time/limit_time
-        # if reward > 1:
-        #     over = reward - 1
-        #     reward = 1 - over
+        # reward = F1_score + cfg.REWARD_PARAMETER - detection_time/limit_time
+        reward = detection_time/limit_time
+        if reward > 1:
+            over = reward - 1
+            reward = 1 - over
         return reward   # 0 ~ 1
 
 
