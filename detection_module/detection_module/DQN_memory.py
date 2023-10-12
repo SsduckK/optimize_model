@@ -4,15 +4,16 @@ import random
 
 
 class ReplayMemory:
-    def __init__(self):
+    def __init__(self, max_size):
+        self.max_size = max_size
         self.meta_info = pd.DataFrame(
             {
-                "model": [None] * 100000,
-                "compression": [None] * 100000,
-                "C2S_time": [None] * 100000,
-                "det_time": [None] * 100000,
-                "reward": [None] * 100000
-            }
+                "model": [None] * max_size,
+                "compression": [None] * max_size,
+                "C2S_time": [None] * max_size,
+                "det_time": [None] * max_size,
+                "reward": [None] * max_size
+            },
         )
 
     def __len__(self):
@@ -22,6 +23,9 @@ class ReplayMemory:
     def append_data(self, frame, input_data):
         for key in input_data.keys():
             self.meta_info.at[frame, key] = input_data[key]
+        if len(self.meta_info) > self.max_size:
+            self.meta_info = self.meta_info.iloc[1:]
+            self.meta_info = self.meta_info.set_index(pd.RangeIndex(start=0, stop=self.max_size))
 
     def latest_state(self):
         last_valid_index = self.meta_info["model"].last_valid_index()
@@ -33,27 +37,25 @@ class ReplayMemory:
             return None
 
     def sample(self, size):
-        non_none_indices = self.meta_info[self.meta_info["model"].notna()].index
+        # non_none_indices = self.meta_info[self.meta_info["model"].notna()].index
+        non_none_indices = self.meta_info.iloc[:-1][~self.meta_info.iloc[:-1]["model"].isna()].index
         sample_index = random.sample(non_none_indices.tolist(), size)
         sample_list = self.meta_info.loc[sample_index]
         return sample_list
 
 
 def main():
-    memory = ReplayMemory()
-    for i in range(5):
+    memory = ReplayMemory(3)
+    for idx, i in enumerate(range(10)):
         input_data = {
             "model": np.array(np.random.randint(0, 5)),
             "compression": np.random.random(),
             "C2S_time": np.random.randint(0, 4),
-            "det_time": np.random.randint(0, 2)
+            "det_time": np.random.randint(0, 2),
+            "reward": np.random.random()
         }
-        memory.append_data(input_data, i)
-        next_state = {"reward" : np.array([np.random.randint(0, 5)])}
-        memory.append_data(next_state, i - 1)
-    sample_list = memory.sample(5)
-    print(memory.latest_state())
-    print(memory.latest_state()[0])
+        memory.append_data(idx, input_data)
+        print(memory.meta_info)
 
 
 if __name__ == "__main__":

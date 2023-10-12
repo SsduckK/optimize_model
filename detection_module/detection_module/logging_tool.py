@@ -20,8 +20,9 @@ class LoggingTool:
         self.time_list = []
         self.time_diff = 0
         self.detection_time_list = []
-        self.episode_detection_std_time = 0
+        self.mean_detection_time_list = []
         self.std_detection_time_list = []
+        self.episode_reward = []
         self.F1_score = 0
 
     def load_frame(self):
@@ -58,28 +59,36 @@ class LoggingTool:
     def detection_time_per_episodes(self, detection_time):
         self.detection_time_list.append(detection_time)
 
-    def std_detection_time_episodes(self):
-        self.episode_detection_std_time = np.std(self.detection_time_list)
-        self.std_detection_time_list.append(self.episode_detection_std_time)
+    def detection_time_episodes(self, reward):
+        episode_detection_mean_time = np.mean(self.detection_time_list)
+        episode_detection_std_time = np.std(self.detection_time_list)
+        self.mean_detection_time_list.append(episode_detection_mean_time)
+        self.std_detection_time_list.append(episode_detection_std_time)
+        self.episode_reward.append(reward)
         self.detection_time_list = []
 
     def logging(self):
         loss = self.loss.cpu().detach().numpy()
         frame_info = np.array([[self.frame_idx, loss, self.time_diff, self.F1_score]])
-        print(f"Loss : {self.loss}, Time diff : {self.time_diff}, F1 score : {self.F1_score}")
+        print(f"\rLoss : {self.loss}, Time diff : {self.time_diff}, F1 score : {self.F1_score}", end="")
         self.base_frame = np.concatenate((self.base_frame, frame_info), axis=0)
         self.frame_idx += 1
 
     def saving_data(self, path):
         now = datetime.datetime.now()
         date_time_str = now.strftime("%Y-%m-%d_%H-%M-%S")
+        options = f"_{cfg.EPISODE_UNIT}-{cfg.NUM_EPISODES}-{cfg.REWARD_PARAMETER}-{cfg.TARGET_TIME}"
+        date_time_str += options
         new_path = op.join(path, date_time_str)
         os.mkdir(new_path)
         loss_timediff_f1score = pd.DataFrame(self.base_frame)
         validate_result = pd.DataFrame(self.validate_state)
-        print(self.std_detection_time_list)
+        mean_std_result = pd.DataFrame(np.concatenate(([self.mean_detection_time_list],
+                                                       [self.std_detection_time_list],
+                                                       [self.episode_reward]), axis=0))
         loss_timediff_f1score.to_csv(op.join(new_path, "log.csv"), index=False)
         validate_result.to_csv(op.join(new_path, "validate.csv"), index=False)
+        mean_std_result.to_csv(op.join(new_path, "time_log.csv"), index=False)
 
 
 def main():

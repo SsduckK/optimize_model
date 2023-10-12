@@ -31,7 +31,7 @@ class Server(Node):
     def __init__(self, gt_path, ckpt_list, train_record):
         super().__init__("server")
         self.detector = Detectors(ckpt_list)
-        self.memory = ReplayMemory()
+        self.memory = ReplayMemory(cfg.REPLAY_MEMORY_SIZE)
         self.dqn = DQN(self.memory)
         self.logging_tool = LoggingTool(cfg.MEAN_RANGE)
         self.read_labels = LabelReader(gt_path)
@@ -40,6 +40,7 @@ class Server(Node):
         self.frame_index = 0
         self.episode_index = 1
         self.target_time = cfg.TARGET_TIME
+        self.episode_reward = 0
         self.metric_by_model = {}   # {'{model_name}_{compression}': [TP, FP, FN]}
         self.image_subscriber = self.create_subscription(Image, "sending_image", self.subscribe_image, 10)
         self.result_publisher = self.create_publisher(Rodmsg, "sending_result", 10)
@@ -62,6 +63,7 @@ class Server(Node):
                      "reward": reward}
         # print(cur_state)
         self.memory.append_data(self.frame_index, cur_state)
+        self.episode_reward += reward
         # action, reward
         if self.train_record == "train":
             next_model_selection, next_compression = self.dqn.select_action(self.memory.latest_state())
@@ -71,12 +73,14 @@ class Server(Node):
             if self.frame_index >= cfg.BATCH_SIZE:
                 self.logging_tool.logging()
             if self.frame_index % cfg.EPISODE_UNIT == 0 and self.frame_index > 0:
-                print("EPISODE :", self.episode_index)
+                print("\nEPISODE :", self.episode_index)
                 self.dqn.update_model()
                 print("====================validating...====================")
                 validate_result = self.dqn.validating()
                 self.logging_tool.record_validation(validate_result)
-                self.logging_tool.std_detection_time_episodes()
+                self.logging_tool.detection_time_episodes(self.episode_reward)
+                print("Episode reward :", self.episode_reward)
+                self.episode_reward = 0
                 self.episode_index += 1
                 print("====================== done =========================")
         elif self.train_record == "record":
@@ -105,8 +109,13 @@ class Server(Node):
         recall, precision = evaluation_result
         F1_score = 2 * recall * precision / (recall + precision)
         self.logging_tool.get_F1score(F1_score)
-        reward = F1_score + 0.7 - detection_time/limit_time
+        reward = F1_score + cfg.REWARD_PARAMETER - detection_time/limit_time
+        # reward = detection_time/limit_time
+        # if reward > 1:
+        #     over = reward - 1
+        #     reward = 1 - over
         return reward   # 0 ~ 1
+
 
     def bboxes_result_tobytes(self, instances):
         bboxes = instances["bboxes"]

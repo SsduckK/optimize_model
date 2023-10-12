@@ -22,15 +22,10 @@ class DQNNetwork(nn.Module):
         self.select_comp = nn.Linear(128, 3)
 
     def forward(self, x):
-        #print("input", x)
         x = F.leaky_relu(self.layer1(x))
-        #print("1st", x)
         x = F.leaky_relu(self.layer2(x))
-        #print("2nd", x)
         select_model = F.leaky_relu(self.select_models(x))
         select_comp = F.leaky_relu(self.select_comp(x))
-        #print("model_", select_model)
-        #print("comp_", select_comp)
         return select_model, select_comp
 
 
@@ -68,8 +63,6 @@ class DQN:
         if len(memory) < self.BATCH_SIZE:
             return
         sample_memory = memory.sample(self.BATCH_SIZE)
-        # curr_state, next_state, reward = batch()
-        # model_selection, compression = func(curr_state)
         cur_state, cur_compression, cur_reward = self.batched_memory(sample_memory)
         model_selection_action_batch = torch.unsqueeze(cur_state[:, 0], 1).type(torch.int64)
         next_state_index = self.get_next_state_index(sample_memory)
@@ -97,8 +90,6 @@ class DQN:
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
         return total_loss
-        # with open("/home/gorilla/lee_ws/ros/src/optimize_model/detection_module/detection_module/data/loss.txt", 'a') as f:
-        #     f.write(f"\n+{str(total_loss)}")
 
     def update_model(self):
         target_net_state_dict = self.target_net.state_dict()
