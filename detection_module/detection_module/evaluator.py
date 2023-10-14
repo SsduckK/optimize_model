@@ -12,14 +12,16 @@ class Evaluator:
 
     def __call__(self, pred, grtr, model_name, compression):
         splits = self.split_tpfpfn(grtr, pred)
+        print(splits)
         self.evaluator_frame.update_data(model_name, compression, self.update_counts(splits))
         recall, precision = self.get_recall_precision(model_name, compression)
         return [recall, precision]
 
     def get_recall_precision(self, model_name, compression):
         tpfpfn = self.evaluator_frame.get_row(model_name, compression)
-        recall = tpfpfn[3]/(tpfpfn[3] + tpfpfn[4] + 1e-7)
-        precision = tpfpfn[2]/(tpfpfn[2] + tpfpfn[4] + 1e-7)
+        print("tpfpfn", tpfpfn)
+        recall = tpfpfn[2]/(tpfpfn[2] + tpfpfn[4] + 1e-7)
+        precision = tpfpfn[2]/(tpfpfn[2] + tpfpfn[3] + 1e-7)
         return recall, precision
 
     def split_tpfpfn(self, grtr, pred):
@@ -38,21 +40,34 @@ class Evaluator:
         if iou.size == 0:
             dummy = {'category': np.array([[[0]]]), 'bboxes': np.array([[[0, 0, 0, 0]]]), 'object': np.array([[[0]]]),
                      'scores': np.array([[[0]]]), 'iou': np.array([[[0]]])}
-            return {"tp": dummy, "fp": dummy, "fn": dummy}
+            return {"pred_tp": dummy, "pred_fp": dummy, "grtr_tp": dummy, "grtr_fn": dummy}
         iou *= ctgr_match
         best_iou = np.max(iou, axis=-1, keepdims=True)  # (batch, N, 1)
         best_idx = np.argmax(iou, axis=-1, keepdims=True)  # (batch, N, 1)
         iou_match = best_iou > self.iou_thresh  # (batch, N, 1)
-        fp_mask = iou_match  # (batch, N, 1)
-        fn_mask = ((1 - fp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
-        fp = {key: val * fp_mask for key, val in grtr.items()}
-        fn = {key: val * fn_mask for key, val in grtr.items()}
-        fp["iou"] = best_iou * fp_mask
-        fn["iou"] = best_iou * fn_mask
-        # last dimension rows where fp_mask == 0 are all-zero
-        tp_mask = self.indices_to_binary_mask(best_idx, fp_mask, M)
-        tp = {key: val * tp_mask for key, val in pred.items()}
-        return {"tp": tp, "fp": fp, "fn": fn}
+        # fp_mask = iou_match  # (batch, N, 1)
+        # fn_mask = ((1 - fp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
+        # fp = {key: val * fp_mask for key, val in grtr.items()}
+        # fn = {key: val * fn_mask for key, val in grtr.items()}
+        # fp["iou"] = best_iou * fp_mask
+        # fn["iou"] = best_iou * fn_mask
+        # # last dimension rows where fp_mask == 0 are all-zero
+        # tp_mask = self.indices_to_binary_mask(best_idx, fp_mask, M)
+        # tp = {key: val * tp_mask for key, val in pred.items()}
+        # return {"tp": tp, "fp": fp, "fn": fn}
+        grtr_tp_mask = np.expand_dims(iou_match * ctgr_match, axis=-1)  # (batch, N, 1)
+        grtr_fn_mask = ((1 - grtr_tp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
+        grtr_tp = {key: val * grtr_tp_mask for key, val in grtr.items()}
+        grtr_fn = {key: val * grtr_fn_mask for key, val in grtr.items()}
+        grtr_tp["iou"] = best_iou * grtr_tp_mask[..., 0]
+        grtr_fn["iou"] = best_iou * grtr_fn_mask[..., 0]
+        # last dimension rows where grtr_tp_mask == 0 are all-zero
+        pred_tp_mask = self.indices_to_binary_mask(best_idx, grtr_tp_mask, M)
+        pred_fp_mask = 1 - pred_tp_mask  # (batch, M, 1)
+        pred_tp = {key: val * pred_tp_mask for key, val in pred.items()}
+        pred_fp = {key: val * pred_fp_mask for key, val in pred.items()}
+
+        return {"pred_tp": pred_tp, "pred_fp": pred_fp, "grtr_tp": grtr_tp, "grtr_fn": grtr_fn}
 
     def insert_batch(self, data):
         for key in data.keys():
@@ -131,8 +146,9 @@ class Evaluator:
     def update_counts(self, split):
         counts = {k: 0 for k in list(split.keys())}
         for atr in split.keys():
-            if atr == "tp":
+            if atr == "pred_tp" or atr == "pred_fp":
                 counts[atr] = np.count_nonzero(split[atr]["scores"])
-            elif atr == "fp" or atr == "fn":
+            elif atr == "grtr_tp" or atr == "grtr_fn":
                 counts[atr] = np.sum(split[atr]["object"])
+        print("count :\n", counts)
         return counts

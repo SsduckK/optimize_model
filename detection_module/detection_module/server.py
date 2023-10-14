@@ -79,6 +79,7 @@ class Server(Node):
                 validate_result = self.dqn.validating()
                 self.logging_tool.record_validation(validate_result)
                 self.logging_tool.detection_time_episodes(self.episode_reward)
+                self.logging_tool.caculating_episode_combination_score(self.evaluate.evaluator_frame.evaluator_frame)
                 print("Episode reward :", self.episode_reward)
                 self.episode_reward = 0
                 self.episode_index += 1
@@ -109,13 +110,11 @@ class Server(Node):
         recall, precision = evaluation_result
         F1_score = 2 * recall * precision / (recall + precision)
         self.logging_tool.get_F1score(F1_score)
-        # reward = F1_score + cfg.REWARD_PARAMETER - detection_time/limit_time
-        reward = detection_time/limit_time
-        if reward > 1:
-            over = reward - 1
-            reward = 1 - over
+        reward = F1_score + cfg.REWARD_PARAMETER - detection_time/limit_time
+        # reward = detection_time/limit_time
+        # if reward > 1:
+        #     reward = 2 - detection_time/limit_time
         return reward   # 0 ~ 1
-
 
     def bboxes_result_tobytes(self, instances):
         bboxes = instances["bboxes"]

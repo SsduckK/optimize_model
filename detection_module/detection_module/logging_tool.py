@@ -23,6 +23,7 @@ class LoggingTool:
         self.mean_detection_time_list = []
         self.std_detection_time_list = []
         self.episode_reward = []
+        self.episode_combination_F1_score = []
         self.F1_score = 0
 
     def load_frame(self):
@@ -67,6 +68,14 @@ class LoggingTool:
         self.episode_reward.append(reward)
         self.detection_time_list = []
 
+    def caculating_episode_combination_score(self, frame):
+        tp, fp, fn = frame[["tp"]].to_numpy(), frame[["fp"]].to_numpy(), frame[["fn"]].to_numpy()
+        recall = tp / (tp + fn + 1e-7)
+        precision = tp / (tp + fp + 1e-7)
+        F1_score = 2 * recall * precision / (recall + precision + 1e-7)
+        print(recall, precision, F1_score)
+        self.episode_combination_F1_score.append(F1_score)
+
     def logging(self):
         loss = self.loss.cpu().detach().numpy()
         frame_info = np.array([[self.frame_idx, loss, self.time_diff, self.F1_score]])
@@ -83,9 +92,11 @@ class LoggingTool:
         os.mkdir(new_path)
         loss_timediff_f1score = pd.DataFrame(self.base_frame)
         validate_result = pd.DataFrame(self.validate_state)
+        self.episode_combination_F1_score = np.squeeze(self.episode_combination_F1_score)
         mean_std_result = pd.DataFrame(np.concatenate(([self.mean_detection_time_list],
                                                        [self.std_detection_time_list],
-                                                       [self.episode_reward]), axis=0))
+                                                       [self.episode_reward],
+                                                       self.episode_combination_F1_score.T), axis=0))
         loss_timediff_f1score.to_csv(op.join(new_path, "log.csv"), index=False)
         validate_result.to_csv(op.join(new_path, "validate.csv"), index=False)
         mean_std_result.to_csv(op.join(new_path, "time_log.csv"), index=False)
